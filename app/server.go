@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -15,23 +15,27 @@ var (
 	ApiKey = "YOUR_OPENAI_KEY_HERE"
 )
 
-type Gpt3Response struct {
-	ID      string   `json:"id"`
-	Object  string   `json:"object"`
-	Created int      `json:"created"`
-	Model   string   `json:"model"`
-	Choices []Choice `json:"choices"`
-	Usage   Usage    `json:"usage"`
+type ChatGPTResponse struct {
+	ID      string       `json:"id"`
+	Object  string       `json:"object"`
+	Created int64        `json:"created"`
+	Model   string       `json:"model"`
+	Choices []ChatChoice `json:"choices"`
+	Usage   ChatUsage    `json:"usage"`
 }
 
-type Choice struct {
-	Text     string      `json:"text"`
-	Index    int         `json:"index"`
-	Logprobs interface{} `json:"logprobs"`
-	Reason   string      `json:"finish_reason"`
+type ChatChoice struct {
+	Index        int         `json:"index"`
+	Message      ChatMessage `json:"message"`
+	FinishReason string      `json:"finish_reason"`
 }
 
-type Usage struct {
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type ChatUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
@@ -72,27 +76,27 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	if strings.ToLower(m.Content) != "ping" && strings.ToLower(m.Content) != "pong" {
-		gpt3Response, err := generateGpt3Response(m.Content)
+		chatResp, err := generateChatGPTResponse(m.Content)
 		if err != nil {
-			fmt.Println("Error generating GPT-3 response: ", err)
+			fmt.Println("Error generating chat response: ", err)
 			return
 		}
 
-		s.ChannelMessageSend(m.ChannelID, gpt3Response.Choices[0].Text)
+		s.ChannelMessageSend(m.ChannelID, chatResp.Choices[0].Message.Content)
 	}
 }
 
-func generateGpt3Response(input string) (Gpt3Response, error) {
-	var response Gpt3Response
+func generateChatGPTResponse(input string) (ChatGPTResponse, error) {
+	var response ChatGPTResponse
 
 	jsonValue, _ := json.Marshal(map[string]interface{}{
-		"model":       "text-davinci-003",
-		"prompt":      input,
-		"max_tokens":  1024,
-		"temperature": 0.5,
+		"model": "gpt-3.5-turbo",
+		"messages": []map[string]string{
+			{"role": "user", "content": input},
+		},
 	})
 
-	req, err := http.NewRequest("POST", "https://api.openai.com/v1/completions", bytes.NewBuffer(jsonValue))
+	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonValue))
 	if err != nil {
 		return response, err
 	}
@@ -107,7 +111,7 @@ func generateGpt3Response(input string) (Gpt3Response, error) {
 	}
 
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return response, err
 	}
